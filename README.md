@@ -1,8 +1,5 @@
 # Sonic Robo Blast 2
-v2.2.8
-
-Will Updae Source code and assets when relesed to keep game up-to-day
-Coded by AirysDark
+[![latest release](https://badgen.net/github/release/STJr/SRB2/stable)](https://github.com/STJr/SRB2/releases/latest)
 
 [![Build status](https://ci.appveyor.com/api/projects/status/399d4hcw9yy7hg2y?svg=true)](https://ci.appveyor.com/project/STJr/srb2)
 [![Build status](https://travis-ci.org/STJr/SRB2.svg?branch=master)](https://travis-ci.org/STJr/SRB2)
@@ -11,7 +8,6 @@ Coded by AirysDark
 [Sonic Robo Blast 2](https://srb2.org/) is a 3D Sonic the Hedgehog fangame based on a modified version of [Doom Legacy](http://doomlegacy.sourceforge.net/).
 
 ## Dependencies
-- NASM (x86 builds only)
 - SDL2 (Linux/OS X only)
 - SDL2-Mixer (Linux/OS X only)
 - libupnp (Linux/OS X only)
