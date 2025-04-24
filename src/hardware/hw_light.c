@@ -1,7 +1,7 @@
 // SONIC ROBO BLAST 2
 //-----------------------------------------------------------------------------
 // Copyright (C) 1998-2000 by DooM Legacy Team.
-// Copyright (C) 1999-2020 by Sonic Team Junior.
+// Copyright (C) 1999-2024 by Sonic Team Junior.
 //
 // This program is free software distributed under the
 // terms of the GNU General Public License, version 2.
@@ -35,8 +35,7 @@
 
 #define DL_HIGH_QUALITY
 //#define STATICLIGHT  //Hurdler: TODO!
-//#define LIGHTMAPFLAGS  (PF_Masked|PF_Clip|PF_NoAlphaTest)  // debug see overdraw
-#define LIGHTMAPFLAGS (PF_Modulated|PF_Additive|PF_Clip)
+#define LIGHTMAPFLAGS (PF_Modulated|PF_Additive)
 
 #ifdef ALAM_LIGHTING
 static dynlights_t view_dynlights[2]; // 2 players in splitscreen mode
@@ -254,6 +253,7 @@ light_t *t_lspr[NUMSPRITES] =
 	&lspr[NOLIGHT],     // SPR_SIGN
 	&lspr[NOLIGHT],     // SPR_SPIK
 	&lspr[NOLIGHT],     // SPR_SFLM
+	&lspr[NOLIGHT],     // SPR_TFLM
 	&lspr[NOLIGHT],     // SPR_USPK
 	&lspr[NOLIGHT],     // SPR_WSPK
 	&lspr[NOLIGHT],     // SPR_WSPB
@@ -341,6 +341,7 @@ light_t *t_lspr[NUMSPRITES] =
 	&lspr[NOLIGHT],     // SPR_BMCH
 	&lspr[NOLIGHT],     // SPR_SMCE
 	&lspr[NOLIGHT],     // SPR_BMCE
+	&lspr[NOLIGHT],     // SPR_BSPB
 	&lspr[NOLIGHT],     // SPR_YSPB
 	&lspr[NOLIGHT],     // SPR_RSPB
 	&lspr[REDBALL_L],   // SPR_SFBR
@@ -394,6 +395,8 @@ light_t *t_lspr[NUMSPRITES] =
 	&lspr[NOLIGHT],     // SPR_XMS4
 	&lspr[NOLIGHT],     // SPR_XMS5
 	&lspr[NOLIGHT],     // SPR_XMS6
+	&lspr[NOLIGHT],     // SPR_SNTT
+	&lspr[NOLIGHT],     // SPR_SSTT
 	&lspr[NOLIGHT],     // SPR_FHZI
 	&lspr[NOLIGHT],     // SPR_ROSY
 
@@ -427,6 +430,8 @@ light_t *t_lspr[NUMSPRITES] =
 	// Misc Scenery
 	&lspr[NOLIGHT],     // SPR_STLG
 	&lspr[NOLIGHT],     // SPR_DBAL
+	&lspr[NOLIGHT],     // SPR_GINE
+	&lspr[NOLIGHT],     // SPR_PPAL
 
 	// Powerup Indicators
 	&lspr[NOLIGHT],     // SPR_ARMA
@@ -612,6 +617,9 @@ light_t *t_lspr[NUMSPRITES] =
 	// Gravity Well Objects
 	&lspr[NOLIGHT],     // SPR_GWLG
 	&lspr[NOLIGHT],     // SPR_GWLR
+
+	// LJ Knuckles
+	&lspr[NOLIGHT],		// SPR_OLDK,
 
 	// Free slots
 	&lspr[NOLIGHT],
@@ -1054,9 +1062,9 @@ void HWR_DoCoronasLighting(FOutVector *outVerts, gl_vissprite_t *spr)
 		light[3].y = cy+size*1.33f+p_lspr->light_yoffset;
 		light[3].s = 0.0f;   light[3].t = 1.0f;
 
-		HWR_GetPic(coronalumpnum);  /// \todo use different coronas
+		// HWR_GetPic(coronalumpnum);  /// \todo use different coronas
 
-		HWD.pfnDrawPolygon (&Surf, light, 4, PF_Modulated | PF_Additive | PF_Clip | PF_Corona | PF_NoDepthTest);
+		HWD.pfnDrawPolygon (&Surf, light, 4, PF_Modulated | PF_Additive | PF_Corona | PF_NoDepthTest);
 	}
 }
 #endif
@@ -1070,7 +1078,7 @@ void HWR_DrawCoronas(void)
 	if (!cv_glcoronas.value || dynlights->nb <= 0 || coronalumpnum == LUMPERROR)
 		return;
 
-	HWR_GetPic(coronalumpnum);  /// \todo use different coronas
+	// HWR_GetPic(coronalumpnum);  /// \todo use different coronas
 	for (j = 0;j < dynlights->nb;j++)
 	{
 		FOutVector      light[4];
@@ -1144,7 +1152,7 @@ void HWR_DrawCoronas(void)
 		light[3].y = cy+size*1.33f;
 		light[3].s = 0.0f;   light[3].t = 1.0f;
 
-		HWD.pfnDrawPolygon (&Surf, light, 4, PF_Modulated | PF_Additive | PF_Clip | PF_NoDepthTest | PF_Corona);
+		HWD.pfnDrawPolygon (&Surf, light, 4, PF_Modulated | PF_Additive | PF_NoDepthTest | PF_Corona);
 	}
 }
 #endif

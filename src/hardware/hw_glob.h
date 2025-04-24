@@ -1,7 +1,7 @@
 // SONIC ROBO BLAST 2
 //-----------------------------------------------------------------------------
 // Copyright (C) 1998-2000 by DooM Legacy Team.
-// Copyright (C) 1999-2020 by Sonic Team Junior.
+// Copyright (C) 1999-2024 by Sonic Team Junior.
 //
 // This program is free software distributed under the
 // terms of the GNU General Public License, version 2.
@@ -62,19 +62,35 @@ typedef struct
 typedef struct gl_vissprite_s
 {
 	float x1, x2;
-	float tz, ty;
-	float tracertz; // for MF2_LINKDRAW sprites, this contains tracer's tz for use in sorting
-	//lumpnum_t patchlumpnum;
-	GLPatch_t *gpatch;
-	boolean flip;
-	UINT8 translucency;       //alpha level 0-255
-	mobj_t *mobj; // NOTE: This is a precipmobj_t if precip is true !!! Watch out.
-	boolean precip; // Tails 08-25-2002
-	boolean vflip;
-   //Hurdler: 25/04/2000: now support colormap in hardware mode
-	UINT8 *colormap;
-	INT32 dispoffset; // copy of info->dispoffset, affects ordering but not drawing
 	float z1, z2;
+	float gz, gzt;
+
+	float tz;
+	float tracertz; // for MF2_LINKDRAW sprites, this contains tracer's tz for use in sorting
+
+	float scale;
+	float shadowheight, shadowscale;
+
+	float spritexscale, spriteyscale;
+	float spritexoffset, spriteyoffset;
+
+	UINT32 renderflags;
+	UINT8 rotateflags;
+
+	boolean flip, vflip;
+	boolean precip; // Tails 08-25-2002
+	boolean bbox;
+	boolean rotated;
+	UINT8 translucency;       //alpha level 0-255
+
+	angle_t angle; // for splats
+
+	//Hurdler: 25/04/2000: now support colormap in hardware mode
+	UINT8 *colormap;
+	INT32 dispoffset; // copy of mobj->dispoffset, affects ordering but not drawing
+
+	patch_t *gpatch;
+	mobj_t *mobj; // NOTE: This is a precipmobj_t if precip is true !!! Watch out.
 } gl_vissprite_t;
 
 // --------
@@ -86,30 +102,61 @@ extern size_t addsubsector;
 void HWR_InitPolyPool(void);
 void HWR_FreePolyPool(void);
 
+void HWR_FreeExtraSubsectors(void);
+
 // --------
 // hw_cache.c
 // --------
-void HWR_InitTextureCache(void);
-void HWR_FreeTextureCache(void);
-void HWR_FreeMipmapCache(void);
-void HWR_FreeExtraSubsectors(void);
+RGBA_t *HWR_GetTexturePalette(void);
 
-void HWR_GetLevelFlat(levelflat_t *levelflat);
-void HWR_LiterallyGetFlat(lumpnum_t flatlumpnum);
-GLMapTexture_t *HWR_GetTexture(INT32 tex);
-void HWR_GetPatch(GLPatch_t *gpatch);
-void HWR_GetMappedPatch(GLPatch_t *gpatch, const UINT8 *colormap);
-void HWR_UnlockCachedPatch(GLPatch_t *gpatch);
-GLPatch_t *HWR_GetPic(lumpnum_t lumpnum);
-void HWR_SetPalette(RGBA_t *palette);
-GLPatch_t *HWR_GetCachedGLPatchPwad(UINT16 wad, UINT16 lump);
-GLPatch_t *HWR_GetCachedGLPatch(lumpnum_t lumpnum);
+void HWR_InitMapTextures(void);
+void HWR_LoadMapTextures(size_t pnumtextures);
+void HWR_FreeMapTextures(void);
+
+patch_t *HWR_GetCachedGLPatchPwad(UINT16 wad, UINT16 lump);
+patch_t *HWR_GetCachedGLPatch(lumpnum_t lumpnum);
+
+void HWR_GetPatch(patch_t *patch);
+void HWR_GetMappedPatch(patch_t *patch, const UINT8 *colormap);
 void HWR_GetFadeMask(lumpnum_t fademasklumpnum);
+
+GLMapTexture_t *HWR_GetTexture(INT32 tex, boolean chromakeyed);
+void HWR_GetLevelFlat(levelflat_t *levelflat, boolean chromakeyed);
+void HWR_GetRawFlat(lumpnum_t flatlumpnum);
+
+void HWR_FreeTexture(patch_t *patch);
+void HWR_FreeTextureData(patch_t *patch);
+void HWR_FreeTextureColormaps(patch_t *patch);
+void HWR_ClearAllTextures(void);
+void HWR_FreeColormapCache(void);
+void HWR_UnlockCachedPatch(GLPatch_t *gpatch);
+
+void HWR_SetPalette(RGBA_t *palette);
+void HWR_SetMapPalette(void);
+UINT32 HWR_CreateLightTable(UINT8 *lighttable, RGBA_t *hw_lighttable);
+void HWR_UpdateLightTable(UINT32 id, UINT8 *lighttable, RGBA_t *hw_lighttable);
+UINT32 HWR_GetLightTableID(extracolormap_t *colormap);
+void HWR_ClearLightTables(void);
+
 
 // --------
 // hw_draw.c
 // --------
 extern INT32 patchformat;
 extern INT32 textureformat;
+
+// --------
+// hw_shaders.c
+// --------
+boolean HWR_InitShaders(void);
+void HWR_CompileShaders(void);
+
+int HWR_GetShaderFromTarget(int shader_target);
+
+void HWR_LoadAllCustomShaders(void);
+void HWR_LoadCustomShadersFromFile(UINT16 wadnum, boolean PK3);
+const char *HWR_GetShaderName(INT32 shader);
+
+extern customshaderxlat_t shaderxlat[];
 
 #endif //_HW_GLOB_
