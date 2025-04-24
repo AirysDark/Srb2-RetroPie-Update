@@ -1,7 +1,7 @@
 // SONIC ROBO BLAST 2
 //-----------------------------------------------------------------------------
 // Copyright (C) 2012-2016 by John "JTE" Muniz.
-// Copyright (C) 2012-2020 by Sonic Team Junior.
+// Copyright (C) 2012-2024 by Sonic Team Junior.
 //
 // This program is free software distributed under the
 // terms of the GNU General Public License, version 2.
@@ -12,7 +12,9 @@
 
 #include "doomdef.h"
 #include "fastcmp.h"
+#include "r_data.h"
 #include "r_skins.h"
+#include "r_translation.h"
 #include "p_local.h"
 #include "g_game.h"
 #include "p_setup.h"
@@ -20,8 +22,7 @@
 #include "lua_script.h"
 #include "lua_libs.h"
 #include "lua_hud.h" // hud_running errors
-
-static const char *const array_opt[] ={"iterate",NULL};
+#include "lua_hook.h" // hook_cmd_running errors
 
 enum mobj_e {
 	mobj_valid = 0,
@@ -33,11 +34,19 @@ enum mobj_e {
 	mobj_angle,
 	mobj_pitch,
 	mobj_roll,
-	mobj_rollangle,
+	mobj_spriteroll,
+	mobj_rollangle, // backwards compat
 	mobj_sprite,
 	mobj_frame,
 	mobj_sprite2,
 	mobj_anim_duration,
+	mobj_spritexscale,
+	mobj_spriteyscale,
+	mobj_spritexoffset,
+	mobj_spriteyoffset,
+	mobj_floorspriteslope,
+	mobj_drawonlyforplayer,
+	mobj_dontdrawforviewmobj,
 	mobj_touching_sectorlist,
 	mobj_subsector,
 	mobj_floorz,
@@ -55,8 +64,12 @@ enum mobj_e {
 	mobj_flags,
 	mobj_flags2,
 	mobj_eflags,
+	mobj_renderflags,
 	mobj_skin,
 	mobj_color,
+	mobj_translation,
+	mobj_blendmode,
+	mobj_alpha,
 	mobj_bnext,
 	mobj_bprev,
 	mobj_hnext,
@@ -89,7 +102,8 @@ enum mobj_e {
 	mobj_standingslope,
 	mobj_colorized,
 	mobj_mirrored,
-	mobj_shadowscale
+	mobj_shadowscale,
+	mobj_dispoffset
 };
 
 static const char *const mobj_opt[] = {
@@ -102,11 +116,19 @@ static const char *const mobj_opt[] = {
 	"angle",
 	"pitch",
 	"roll",
-	"rollangle",
+	"spriteroll",
+	"rollangle", // backwards compat
 	"sprite",
 	"frame",
 	"sprite2",
 	"anim_duration",
+	"spritexscale",
+	"spriteyscale",
+	"spritexoffset",
+	"spriteyoffset",
+	"floorspriteslope",
+	"drawonlyforplayer",
+	"dontdrawforviewmobj",
 	"touching_sectorlist",
 	"subsector",
 	"floorz",
@@ -124,8 +146,12 @@ static const char *const mobj_opt[] = {
 	"flags",
 	"flags2",
 	"eflags",
+	"renderflags",
 	"skin",
 	"color",
+	"translation",
+	"blendmode",
+	"alpha",
 	"bnext",
 	"bprev",
 	"hnext",
@@ -159,22 +185,25 @@ static const char *const mobj_opt[] = {
 	"colorized",
 	"mirrored",
 	"shadowscale",
+	"dispoffset",
 	NULL};
 
 #define UNIMPLEMENTED luaL_error(L, LUA_QL("mobj_t") " field " LUA_QS " is not implemented for Lua and cannot be accessed.", mobj_opt[field])
 
+static int mobj_fields_ref = LUA_NOREF;
+
 static int mobj_get(lua_State *L)
 {
 	mobj_t *mo = *((mobj_t **)luaL_checkudata(L, 1, META_MOBJ));
-	enum mobj_e field = Lua_optoption(L, 2, NULL, mobj_opt);
+	enum mobj_e field = Lua_optoption(L, 2, -1, mobj_fields_ref);
 	lua_settop(L, 2);
 
-	if (!mo || !ISINLEVEL) {
+	if (P_MobjWasRemoved(mo) || !ISINLEVEL) {
 		if (field == mobj_valid) {
 			lua_pushboolean(L, 0);
 			return 1;
 		}
-		if (!mo) {
+		if (P_MobjWasRemoved(mo)) {
 			return LUA_ErrInvalid(L, "mobj_t");
 		} else
 			return luaL_error(L, "Do not access an mobj_t field outside a level!");
@@ -211,8 +240,9 @@ static int mobj_get(lua_State *L)
 	case mobj_roll:
 		lua_pushangle(L, mo->roll);
 		break;
-	case mobj_rollangle:
-		lua_pushangle(L, mo->rollangle);
+	case mobj_spriteroll:
+	case mobj_rollangle: // backwards compat
+		lua_pushangle(L, mo->spriteroll);
 		break;
 	case mobj_sprite:
 		lua_pushinteger(L, mo->sprite);
@@ -225,6 +255,32 @@ static int mobj_get(lua_State *L)
 		break;
 	case mobj_anim_duration:
 		lua_pushinteger(L, mo->anim_duration);
+		break;
+	case mobj_spritexscale:
+		lua_pushfixed(L, mo->spritexscale);
+		break;
+	case mobj_spriteyscale:
+		lua_pushfixed(L, mo->spriteyscale);
+		break;
+	case mobj_spritexoffset:
+		lua_pushfixed(L, mo->spritexoffset);
+		break;
+	case mobj_spriteyoffset:
+		lua_pushfixed(L, mo->spriteyoffset);
+		break;
+	case mobj_floorspriteslope:
+		LUA_PushUserdata(L, mo->floorspriteslope, META_SLOPE);
+		break;
+	case mobj_drawonlyforplayer:
+		LUA_PushUserdata(L, mo->drawonlyforplayer, META_PLAYER);
+		break;
+	case mobj_dontdrawforviewmobj:
+		if (mo->dontdrawforviewmobj && P_MobjWasRemoved(mo->dontdrawforviewmobj))
+		{ // don't put invalid mobj back into Lua.
+			P_SetTarget(&mo->dontdrawforviewmobj, NULL);
+			return 0;
+		}
+		LUA_PushUserdata(L, mo->dontdrawforviewmobj, META_MOBJ);
 		break;
 	case mobj_touching_sectorlist:
 		return UNIMPLEMENTED;
@@ -276,6 +332,9 @@ static int mobj_get(lua_State *L)
 	case mobj_eflags:
 		lua_pushinteger(L, mo->eflags);
 		break;
+	case mobj_renderflags:
+		lua_pushinteger(L, mo->renderflags);
+		break;
 	case mobj_skin: // skin name or nil, not struct
 		if (!mo->skin)
 			return 0;
@@ -284,9 +343,29 @@ static int mobj_get(lua_State *L)
 	case mobj_color:
 		lua_pushinteger(L, mo->color);
 		break;
-	case mobj_bnext:
-		LUA_PushUserdata(L, mo->bnext, META_MOBJ);
+	case mobj_translation:
+		if (mo->translation)
+		{
+			const char *name = R_GetCustomTranslationName(mo->translation);
+			if (name)
+				lua_pushstring(L, name);
+			break;
+		}
+		lua_pushnil(L);
 		break;
+	case mobj_blendmode:
+		lua_pushinteger(L, mo->blendmode);
+		break;
+	case mobj_alpha:
+		lua_pushfixed(L, mo->alpha);
+		break;
+	case mobj_bnext:
+		if (mo->blocknode && mo->blocknode->bnext) {
+			LUA_PushUserdata(L, mo->blocknode->bnext->mobj, META_MOBJ);
+			break;
+		}
+		else
+			return 0;
 	case mobj_bprev:
 		// bprev -- same deal as sprev above, but for the blockmap.
 		return UNIMPLEMENTED;
@@ -404,6 +483,9 @@ static int mobj_get(lua_State *L)
 	case mobj_shadowscale:
 		lua_pushfixed(L, mo->shadowscale);
 		break;
+	case mobj_dispoffset:
+		lua_pushinteger(L, mo->dispoffset);
+		break;
 	default: // extra custom variables in Lua memory
 		lua_getfield(L, LUA_REGISTRYINDEX, LREG_EXTVARS);
 		I_Assert(lua_istable(L, -1));
@@ -423,11 +505,11 @@ static int mobj_get(lua_State *L)
 }
 
 #define NOSET luaL_error(L, LUA_QL("mobj_t") " field " LUA_QS " should not be set directly.", mobj_opt[field])
-#define NOSETPOS luaL_error(L, LUA_QL("mobj_t") " field " LUA_QS " should not be set directly. Use " LUA_QL("P_Move") ", " LUA_QL("P_TryMove") ", or " LUA_QL("P_TeleportMove") " instead.", mobj_opt[field])
+#define NOSETPOS luaL_error(L, LUA_QL("mobj_t") " field " LUA_QS " should not be set directly. Use " LUA_QL("P_Move") ", " LUA_QL("P_TryMove") ", or " LUA_QL("P_SetOrigin") ", or " LUA_QL("P_MoveOrigin") " instead.", mobj_opt[field])
 static int mobj_set(lua_State *L)
 {
 	mobj_t *mo = *((mobj_t **)luaL_checkudata(L, 1, META_MOBJ));
-	enum mobj_e field = Lua_optoption(L, 2, mobj_opt[0], mobj_opt);
+	enum mobj_e field = Lua_optoption(L, 2, mobj_valid, mobj_fields_ref);
 	lua_settop(L, 3);
 
 	INLEVEL
@@ -437,6 +519,8 @@ static int mobj_set(lua_State *L)
 
 	if (hud_running)
 		return luaL_error(L, "Do not alter mobj_t in HUD rendering code!");
+	if (hook_cmd_running)
+		return luaL_error(L, "Do not alter mobj_t in CMD building code!");
 
 	switch(field)
 	{
@@ -474,8 +558,9 @@ static int mobj_set(lua_State *L)
 	case mobj_roll:
 		mo->roll = luaL_checkangle(L, 3);
 		break;
-	case mobj_rollangle:
-		mo->rollangle = luaL_checkangle(L, 3);
+	case mobj_spriteroll:
+	case mobj_rollangle: // backwards compat
+		mo->spriteroll = luaL_checkangle(L, 3);
 		break;
 	case mobj_sprite:
 		mo->sprite = luaL_checkinteger(L, 3);
@@ -484,10 +569,42 @@ static int mobj_set(lua_State *L)
 		mo->frame = (UINT32)luaL_checkinteger(L, 3);
 		break;
 	case mobj_sprite2:
-		mo->sprite2 = P_GetSkinSprite2(((skin_t *)mo->skin), (UINT8)luaL_checkinteger(L, 3), mo->player);
+		mo->sprite2 = P_GetSkinSprite2(((skin_t *)mo->skin), (UINT16)luaL_checkinteger(L, 3), mo->player);
 		break;
 	case mobj_anim_duration:
 		mo->anim_duration = (UINT16)luaL_checkinteger(L, 3);
+		break;
+	case mobj_spritexscale:
+		mo->spritexscale = luaL_checkfixed(L, 3);
+		break;
+	case mobj_spriteyscale:
+		mo->spriteyscale = luaL_checkfixed(L, 3);
+		break;
+	case mobj_spritexoffset:
+		mo->spritexoffset = luaL_checkfixed(L, 3);
+		break;
+	case mobj_spriteyoffset:
+		mo->spriteyoffset = luaL_checkfixed(L, 3);
+		break;
+	case mobj_floorspriteslope:
+		return NOSET;
+	case mobj_drawonlyforplayer:
+		if (lua_isnil(L, 3))
+			mo->drawonlyforplayer = NULL;
+		else
+		{
+			player_t *drawonlyforplayer = *((player_t **)luaL_checkudata(L, 3, META_PLAYER));
+			mo->drawonlyforplayer = drawonlyforplayer;
+		}
+		break;
+	case mobj_dontdrawforviewmobj:
+		if (lua_isnil(L, 3))
+			P_SetTarget(&mo->dontdrawforviewmobj, NULL);
+		else
+		{
+			mobj_t *dontdrawforviewmobj = *((mobj_t **)luaL_checkudata(L, 3, META_MOBJ));
+			P_SetTarget(&mo->dontdrawforviewmobj, dontdrawforviewmobj);
+		}
 		break;
 	case mobj_touching_sectorlist:
 		return UNIMPLEMENTED;
@@ -546,10 +663,7 @@ static int mobj_set(lua_State *L)
 		mo->tics = luaL_checkinteger(L, 3);
 		break;
 	case mobj_state: // set state by enum
-		if (mo->player)
-			P_SetPlayerMobjState(mo, luaL_checkinteger(L, 3));
-		else
-			P_SetMobjState(mo, luaL_checkinteger(L, 3));
+		P_SetMobjState(mo, luaL_checkinteger(L, 3));
 		break;
 	case mobj_flags: // special handling for MF_NOBLOCKMAP and MF_NOSECTOR
 	{
@@ -564,7 +678,6 @@ static int mobj_set(lua_State *L)
 				sector_list = NULL;
 			}
 			mo->snext = NULL, mo->sprev = NULL;
-			mo->bnext = NULL, mo->bprev = NULL;
 			P_SetThingPosition(mo);
 		}
 		else
@@ -577,6 +690,9 @@ static int mobj_set(lua_State *L)
 	case mobj_eflags:
 		mo->eflags = (UINT32)luaL_checkinteger(L, 3);
 		break;
+	case mobj_renderflags:
+		mo->renderflags = (UINT32)luaL_checkinteger(L, 3);
+		break;
 	case mobj_skin: // set skin by name
 	{
 		INT32 i;
@@ -584,20 +700,52 @@ static int mobj_set(lua_State *L)
 		strlcpy(skin, luaL_checkstring(L, 3), sizeof skin);
 		strlwr(skin); // all skin names are lowercase
 		for (i = 0; i < numskins; i++)
-			if (fastcmp(skins[i].name, skin))
+			if (fastcmp(skins[i]->name, skin))
 			{
 				if (!mo->player || R_SkinUsable(mo->player-players, i))
-					mo->skin = &skins[i];
+					mo->skin = skins[i];
 				return 0;
 			}
 		return luaL_error(L, "mobj.skin '%s' not found!", skin);
 	}
 	case mobj_color:
 	{
-		UINT16 newcolor = (UINT16)luaL_checkinteger(L,3);
+		UINT16 newcolor = (UINT16)luaL_checkinteger(L, 3);
 		if (newcolor >= numskincolors)
 			return luaL_error(L, "mobj.color %d out of range (0 - %d).", newcolor, numskincolors-1);
 		mo->color = newcolor;
+		break;
+	}
+	case mobj_translation:
+	{
+		if (!lua_isnil(L, 3)) {
+			const char *tr = luaL_checkstring(L, 3);
+			int id = R_FindCustomTranslation(tr);
+			if (id != -1)
+				mo->translation = id;
+			else
+				return luaL_error(L, "invalid translation '%s'.", tr);
+		}
+		else
+			mo->translation = 0;
+		break;
+	}
+	case mobj_blendmode:
+	{
+		INT32 blendmode = (INT32)luaL_checkinteger(L, 3);
+		if (blendmode < 0 || blendmode > AST_OVERLAY)
+			return luaL_error(L, "mobj.blendmode %d out of range (0 - %d).", blendmode, AST_OVERLAY);
+		mo->blendmode = blendmode;
+		break;
+	}
+	case mobj_alpha:
+	{
+		fixed_t alpha = luaL_checkfixed(L, 3);
+		if (alpha < 0)
+			alpha = 0;
+		else if (alpha > FRACUNIT)
+			alpha = FRACUNIT;
+		mo->alpha = alpha;
 		break;
 	}
 	case mobj_bnext:
@@ -629,7 +777,7 @@ static int mobj_set(lua_State *L)
 			return luaL_error(L, "mobj.type %d out of range (0 - %d).", newtype, NUMMOBJTYPES-1);
 		mo->type = newtype;
 		mo->info = &mobjinfo[newtype];
-		P_SetScale(mo, mo->scale);
+		P_SetScale(mo, mo->scale, false);
 		break;
 	}
 	case mobj_info:
@@ -703,8 +851,7 @@ static int mobj_set(lua_State *L)
 		fixed_t scale = luaL_checkfixed(L, 3);
 		if (scale < FRACUNIT/100)
 			scale = FRACUNIT/100;
-		mo->destscale = scale;
-		P_SetScale(mo, scale);
+		P_SetScale(mo, scale, true);
 		break;
 	}
 	case mobj_destscale:
@@ -740,6 +887,9 @@ static int mobj_set(lua_State *L)
 		break;
 	case mobj_shadowscale:
 		mo->shadowscale = luaL_checkfixed(L, 3);
+		break;
+	case mobj_dispoffset:
+		mo->dispoffset = luaL_checkinteger(L, 3);
 		break;
 	default:
 		lua_getfield(L, LUA_REGISTRYINDEX, LREG_EXTVARS);
@@ -805,14 +955,59 @@ static int thingstringargs_len(lua_State *L)
 	return 1;
 }
 
+enum mapthing_e {
+	mapthing_valid = 0,
+	mapthing_x,
+	mapthing_y,
+	mapthing_angle,
+	mapthing_pitch,
+	mapthing_roll,
+	mapthing_type,
+	mapthing_options,
+	mapthing_scale,
+	mapthing_spritexscale,
+	mapthing_spriteyscale,
+	mapthing_z,
+	mapthing_extrainfo,
+	mapthing_tag,
+	mapthing_taglist,
+	mapthing_args,
+	mapthing_stringargs,
+	mapthing_mobj,
+};
+
+const char *const mapthing_opt[] = {
+	"valid",
+	"x",
+	"y",
+	"angle",
+	"pitch",
+	"roll",
+	"type",
+	"options",
+	"scale",
+	"spritexscale",
+	"spriteyscale",
+	"z",
+	"extrainfo",
+	"tag",
+	"taglist",
+	"args",
+	"stringargs",
+	"mobj",
+	NULL,
+};
+
+static int mapthing_fields_ref = LUA_NOREF;
+
 static int mapthing_get(lua_State *L)
 {
 	mapthing_t *mt = *((mapthing_t **)luaL_checkudata(L, 1, META_MAPTHING));
-	const char *field = luaL_checkstring(L, 2);
-	lua_Integer number;
+	enum mapthing_e field = Lua_optoption(L, 2, -1, mapthing_fields_ref);
+	lua_settop(L, 2);
 
 	if (!mt) {
-		if (fastcmp(field,"valid")) {
+		if (field == mapthing_valid) {
 			lua_pushboolean(L, false);
 			return 1;
 		}
@@ -821,95 +1016,146 @@ static int mapthing_get(lua_State *L)
 		return 0;
 	}
 
-	if (fastcmp(field,"valid")) {
-		lua_pushboolean(L, true);
-		return 1;
-	} else if(fastcmp(field,"x"))
-		number = mt->x;
-	else if(fastcmp(field,"y"))
-		number = mt->y;
-	else if(fastcmp(field,"angle"))
-		number = mt->angle;
-	else if(fastcmp(field,"pitch"))
-		number = mt->pitch;
-	else if(fastcmp(field,"roll"))
-		number = mt->roll;
-	else if(fastcmp(field,"type"))
-		number = mt->type;
-	else if(fastcmp(field,"options"))
-		number = mt->options;
-	else if(fastcmp(field,"scale"))
-		number = mt->scale;
-	else if(fastcmp(field,"z"))
-		number = mt->z;
-	else if(fastcmp(field,"extrainfo"))
-		number = mt->extrainfo;
-	else if(fastcmp(field,"tag"))
-		number = mt->tag;
-	else if(fastcmp(field,"args"))
-	{
-		LUA_PushUserdata(L, mt->args, META_THINGARGS);
-		return 1;
-	}
-	else if(fastcmp(field,"stringargs"))
-	{
-		LUA_PushUserdata(L, mt->stringargs, META_THINGSTRINGARGS);
-		return 1;
-	}
-	else if(fastcmp(field,"mobj")) {
-		LUA_PushUserdata(L, mt->mobj, META_MOBJ);
-		return 1;
-	} else if (devparm)
-		return luaL_error(L, LUA_QL("mapthing_t") " has no field named " LUA_QS, field);
-	else
-		return 0;
+	if (field == (enum mapthing_e)-1)
+		return LUA_ErrInvalid(L, "fields");
 
-	lua_pushinteger(L, number);
+	switch (field)
+	{
+		case mapthing_valid:
+			lua_pushboolean(L, true);
+			break;
+		case mapthing_x:
+			lua_pushinteger(L, mt->x);
+			break;
+		case mapthing_y:
+			lua_pushinteger(L, mt->y);
+			break;
+		case mapthing_angle:
+			lua_pushinteger(L, mt->angle);
+			break;
+		case mapthing_pitch:
+			lua_pushinteger(L, mt->pitch);
+			break;
+		case mapthing_roll:
+			lua_pushinteger(L, mt->roll);
+			break;
+		case mapthing_type:
+			lua_pushinteger(L, mt->type);
+			break;
+		case mapthing_options:
+			lua_pushinteger(L, mt->options);
+			break;
+		case mapthing_scale:
+			lua_pushfixed(L, mt->scale);
+			break;
+		case mapthing_spritexscale:
+			lua_pushfixed(L, mt->spritexscale);
+			break;
+		case mapthing_spriteyscale:
+			lua_pushfixed(L, mt->spriteyscale);
+			break;
+		case mapthing_z:
+			lua_pushinteger(L, mt->z);
+			break;
+		case mapthing_extrainfo:
+			lua_pushinteger(L, mt->extrainfo);
+			break;
+		case mapthing_tag:
+			lua_pushinteger(L, Tag_FGet(&mt->tags));
+			break;
+		case mapthing_taglist:
+			LUA_PushUserdata(L, &mt->tags, META_TAGLIST);
+			break;
+		case mapthing_args:
+			LUA_PushUserdata(L, mt->args, META_THINGARGS);
+			break;
+		case mapthing_stringargs:
+			LUA_PushUserdata(L, mt->stringargs, META_THINGSTRINGARGS);
+			break;
+		case mapthing_mobj:
+			LUA_PushUserdata(L, mt->mobj, META_MOBJ);
+			break;
+		default:
+			if (devparm)
+				return luaL_error(L, "%s %s", LUA_QL("mapthing_t"), va("has no field named: %ui", field));
+			else
+				return 0;
+	}
+
 	return 1;
 }
 
 static int mapthing_set(lua_State *L)
 {
 	mapthing_t *mt = *((mapthing_t **)luaL_checkudata(L, 1, META_MAPTHING));
-	const char *field = luaL_checkstring(L, 2);
+	enum mapthing_e field = Lua_optoption(L, 2, -1, mapthing_fields_ref);
+	lua_settop(L, 3);
 
 	if (!mt)
 		return luaL_error(L, "accessed mapthing_t doesn't exist anymore.");
 
+	if (field == (enum mapthing_e)-1)
+		return LUA_ErrInvalid(L, "fields");
+
 	if (hud_running)
 		return luaL_error(L, "Do not alter mapthing_t in HUD rendering code!");
+	if (hook_cmd_running)
+		return luaL_error(L, "Do not alter mapthing_t in CMD building code!");
 
-	if(fastcmp(field,"x"))
-		mt->x = (INT16)luaL_checkinteger(L, 3);
-	else if(fastcmp(field,"y"))
-		mt->y = (INT16)luaL_checkinteger(L, 3);
-	else if(fastcmp(field,"angle"))
-		mt->angle = (INT16)luaL_checkinteger(L, 3);
-	else if(fastcmp(field,"pitch"))
-		mt->pitch = (INT16)luaL_checkinteger(L, 3);
-	else if(fastcmp(field,"roll"))
-		mt->roll = (INT16)luaL_checkinteger(L, 3);
-	else if(fastcmp(field,"type"))
-		mt->type = (UINT16)luaL_checkinteger(L, 3);
-	else if(fastcmp(field,"options"))
-		mt->options = (UINT16)luaL_checkinteger(L, 3);
-	else if(fastcmp(field,"scale"))
-		mt->scale = luaL_checkfixed(L, 3);
-	else if(fastcmp(field,"z"))
-		mt->z = (INT16)luaL_checkinteger(L, 3);
-	else if(fastcmp(field,"extrainfo"))
+	switch (field)
 	{
-		INT32 extrainfo = luaL_checkinteger(L, 3);
-		if (extrainfo & ~15)
-			return luaL_error(L, "mapthing_t extrainfo set %d out of range (%d - %d)", extrainfo, 0, 15);
-		mt->extrainfo = (UINT8)extrainfo;
+		case mapthing_x:
+			mt->x = (INT16)luaL_checkinteger(L, 3);
+			break;
+		case mapthing_y:
+			mt->y = (INT16)luaL_checkinteger(L, 3);
+			break;
+		case mapthing_angle:
+			mt->angle = (INT16)luaL_checkinteger(L, 3);
+			break;
+		case mapthing_pitch:
+			mt->pitch = (INT16)luaL_checkinteger(L, 3);
+			break;
+		case mapthing_roll:
+			mt->roll = (INT16)luaL_checkinteger(L, 3);
+			break;
+		case mapthing_type:
+			mt->type = (UINT16)luaL_checkinteger(L, 3);
+			break;
+		case mapthing_options:
+			mt->options = (UINT16)luaL_checkinteger(L, 3);
+			break;
+		case mapthing_scale:
+			mt->scale = luaL_checkfixed(L, 3);
+			break;
+		case mapthing_spritexscale:
+			mt->spritexscale = luaL_checkfixed(L, 3);
+			break;
+		case mapthing_spriteyscale:
+			mt->spriteyscale = luaL_checkfixed(L, 3);
+			break;
+		case mapthing_z:
+			mt->z = (INT16)luaL_checkinteger(L, 3);
+			break;
+		case mapthing_extrainfo:
+		{
+			INT32 extrainfo = luaL_checkinteger(L, 3);
+			if (extrainfo & ~15)
+				return luaL_error(L, "mapthing_t extrainfo set %d out of range (%d - %d)", extrainfo, 0, 15);
+			mt->extrainfo = (UINT8)extrainfo;
+			break;
+		}
+		case mapthing_tag:
+			Tag_FSet(&mt->tags, (INT16)luaL_checkinteger(L, 3));
+			break;
+		case mapthing_taglist:
+			return LUA_ErrSetDirectly(L, "mapthing_t", "taglist");
+		case mapthing_mobj:
+			mt->mobj = *((mobj_t **)luaL_checkudata(L, 3, META_MOBJ));
+			break;
+		default:
+			return luaL_error(L, "%s %s", LUA_QL("mapthing_t"), va("has no field named: %ui", field));
 	}
-	else if (fastcmp(field,"tag"))
-		mt->tag = (INT16)luaL_checkinteger(L, 3);
-	else if(fastcmp(field,"mobj"))
-		mt->mobj = *((mobj_t **)luaL_checkudata(L, 3, META_MOBJ));
-	else
-		return luaL_error(L, LUA_QL("mapthing_t") " has no field named " LUA_QS, field);
 
 	return 0;
 }
@@ -943,23 +1189,13 @@ static int lib_iterateMapthings(lua_State *L)
 
 static int lib_getMapthing(lua_State *L)
 {
-	int field;
 	INLEVEL
-	lua_settop(L, 2);
-	lua_remove(L, 1); // dummy userdata table is unused.
-	if (lua_isnumber(L, 1))
+	if (lua_isnumber(L, 2))
 	{
-		size_t i = lua_tointeger(L, 1);
+		size_t i = lua_tointeger(L, 2);
 		if (i >= nummapthings)
 			return 0;
 		LUA_PushUserdata(L, &mapthings[i], META_MAPTHING);
-		return 1;
-	}
-	field = luaL_checkoption(L, 1, NULL, array_opt);
-	switch(field)
-	{
-	case 0: // iterate
-		lua_pushcfunction(L, lib_iterateMapthings);
 		return 1;
 	}
 	return 0;
@@ -973,49 +1209,21 @@ static int lib_nummapthings(lua_State *L)
 
 int LUA_MobjLib(lua_State *L)
 {
-	luaL_newmetatable(L, META_MOBJ);
-		lua_pushcfunction(L, mobj_get);
-		lua_setfield(L, -2, "__index");
+	LUA_RegisterUserdataMetatable(L, META_MOBJ, mobj_get, mobj_set, NULL);
+	LUA_RegisterUserdataMetatable(L, META_THINGARGS, thingargs_get, NULL, thingargs_len);
+	LUA_RegisterUserdataMetatable(L, META_THINGSTRINGARGS, thingstringargs_get, NULL, thingstringargs_len);
+	LUA_RegisterUserdataMetatable(L, META_MAPTHING, mapthing_get, mapthing_set, mapthing_num);
 
-		lua_pushcfunction(L, mobj_set);
-		lua_setfield(L, -2, "__newindex");
-	lua_pop(L,1);
+	mobj_fields_ref = Lua_CreateFieldTable(L, mobj_opt);
+	mapthing_fields_ref = Lua_CreateFieldTable(L, mapthing_opt);
 
-	luaL_newmetatable(L, META_THINGARGS);
-		lua_pushcfunction(L, thingargs_get);
-		lua_setfield(L, -2, "__index");
+	LUA_PushTaggableObjectArray(L, "mapthings",
+			lib_iterateMapthings,
+			lib_getMapthing,
+			lib_nummapthings,
+			tags_mapthings,
+			&nummapthings, &mapthings,
+			sizeof (mapthing_t), META_MAPTHING);
 
-		lua_pushcfunction(L, thingargs_len);
-		lua_setfield(L, -2, "__len");
-	lua_pop(L, 1);
-
-	luaL_newmetatable(L, META_THINGSTRINGARGS);
-		lua_pushcfunction(L, thingstringargs_get);
-		lua_setfield(L, -2, "__index");
-
-		lua_pushcfunction(L, thingstringargs_len);
-		lua_setfield(L, -2, "__len");
-	lua_pop(L, 1);
-
-	luaL_newmetatable(L, META_MAPTHING);
-		lua_pushcfunction(L, mapthing_get);
-		lua_setfield(L, -2, "__index");
-
-		lua_pushcfunction(L, mapthing_set);
-		lua_setfield(L, -2, "__newindex");
-
-		lua_pushcfunction(L, mapthing_num);
-		lua_setfield(L, -2, "__len");
-	lua_pop(L,1);
-
-	lua_newuserdata(L, 0);
-		lua_createtable(L, 0, 2);
-			lua_pushcfunction(L, lib_getMapthing);
-			lua_setfield(L, -2, "__index");
-
-			lua_pushcfunction(L, lib_nummapthings);
-			lua_setfield(L, -2, "__len");
-		lua_setmetatable(L, -2);
-	lua_setglobal(L, "mapthings");
 	return 0;
 }
