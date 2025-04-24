@@ -2,7 +2,7 @@
 //-----------------------------------------------------------------------------
 // Copyright (C) 1993-1996 by id Software, Inc.
 // Copyright (C) 1998-2000 by DooM Legacy Team.
-// Copyright (C) 1999-2020 by Sonic Team Junior.
+// Copyright (C) 1999-2024 by Sonic Team Junior.
 //
 // This program is free software distributed under the
 // terms of the GNU General Public License, version 2.
@@ -45,12 +45,16 @@ typedef enum
 	SF_MARIODAMAGE      = SF_NOJUMPDAMAGE|SF_STOMPDAMAGE, // The Mario method of being able to damage enemies, etc.
 	SF_MACHINE          = 1<<10, // Beep boop. Are you a robot?
 	SF_DASHMODE         = 1<<11, // Sonic Advance 2 style top speed increase?
-	SF_FASTEDGE         = 1<<12, // Faster edge teeter?
-	SF_MULTIABILITY     = 1<<13, // Revenge of Final Demo.
-	SF_NONIGHTSROTATION = 1<<14, // Disable sprite rotation for NiGHTS
-	SF_NONIGHTSSUPER    = 1<<15, // Disable super colors for NiGHTS (if you have SF_SUPER)
-	SF_NOSUPERSPRITES   = 1<<16, // Don't use super sprites while super
-	SF_NOSUPERJUMPBOOST = 1<<17, // Disable the jump boost given while super (i.e. Knuckles)
+	SF_FASTWAIT         = 1<<12, // Faster wait animation?
+	SF_FASTEDGE         = 1<<13, // Faster edge teeter?
+	SF_MULTIABILITY     = 1<<14, // Revenge of Final Demo.
+	SF_NONIGHTSROTATION = 1<<15, // Disable sprite rotation for NiGHTS
+	SF_NONIGHTSSUPER    = 1<<16, // Disable super colors for NiGHTS (if you have SF_SUPER)
+	SF_NOSUPERSPRITES   = 1<<17, // Don't use super sprites while super
+	SF_NOSUPERJUMPBOOST = 1<<18, // Disable the jump boost given while super (i.e. Knuckles)
+	SF_CANBUSTWALLS     = 1<<19, // Can naturally bust walls on contact? (i.e. Knuckles)
+	SF_NOSHIELDABILITY  = 1<<20, // Disable shield abilities
+
 	// free up to and including 1<<31
 } skinflags_t;
 
@@ -242,8 +246,41 @@ typedef enum
 	CR_MINECART,
 	CR_ROLLOUT,
 	CR_PTERABYTE,
-	CR_DUSTDEVIL
+	CR_DUSTDEVIL,
+	CR_FAN
 } carrytype_t; // pw_carry
+
+typedef enum
+{
+	STR_NONE = 0, // All strong powers can stack onto each other
+
+	// Attack powers
+	STR_ANIM = 0x1, // remove powers when leaving current animation
+	STR_PUNCH = 0x2, // frontal attack (knuckles glide)
+	STR_TAIL = 0x4, // rear attack
+	STR_STOMP = 0x8, // falling onto object (fang bounce)
+	STR_UPPER = 0x10, // moving upwards into object (tails fly)
+	STR_GUARD = 0x20, //protect against damage
+	STR_HEAVY = 0x40, // ignore vertical rebound
+	STR_DASH = 0x80, // special type for machine dashmode, automatically removes your powers when leaving dashmode
+
+	// Environment powers
+	STR_WALL = 0x100, // fof busting
+	STR_FLOOR = 0x200,
+	STR_CEILING = 0x400,
+	STR_SPRING = 0x800, // power up hit springs
+	STR_SPIKE = 0x1000, // break spikes
+
+	// Shortcuts
+	STR_ATTACK = STR_PUNCH|STR_TAIL|STR_STOMP|STR_UPPER,
+	STR_BUST = STR_WALL|STR_FLOOR|STR_CEILING,
+	STR_FLY = STR_ANIM|STR_UPPER,
+	STR_GLIDE = STR_ANIM|STR_PUNCH,
+	STR_TWINSPIN = STR_ANIM|STR_ATTACK|STR_BUST|STR_SPRING|STR_SPIKE,
+	STR_MELEE = STR_ANIM|STR_PUNCH|STR_HEAVY|STR_WALL|STR_FLOOR|STR_SPRING|STR_SPIKE,
+	STR_BOUNCE = STR_ANIM|STR_STOMP|STR_FLOOR,
+	STR_METAL = STR_DASH|STR_SPIKE
+} strongtype_t; // pw_strong
 
 // Player powers. (don't edit this comment)
 typedef enum
@@ -289,6 +326,8 @@ typedef enum
 
 	pw_ignorelatch, // Don't grab onto CR_GENERIC, add 32768 (powers[pw_ignorelatch] & 1<<15) to avoid ALL not-NiGHTS CR_ types
 
+	pw_strong, // Additional properties for powerful attacks
+
 	NUMPOWERS
 } powertype_t;
 
@@ -310,9 +349,53 @@ typedef enum
 	RW_RAIL    = 32
 } ringweapons_t;
 
+//Bot types
+typedef enum
+{
+	BOT_NONE = 0,
+	BOT_2PAI,
+	BOT_2PHUMAN,
+	BOT_MPAI
+} bottype_t;
+
+//AI states
+typedef enum
+{
+	AI_STANDBY = 0,
+	AI_FOLLOW,
+	AI_CATCHUP,
+	AI_THINKFLY,
+	AI_FLYSTANDBY,
+	AI_FLYCARRY,
+	AI_SPINFOLLOW
+} aistatetype_t;
+
+// NiGHTS text
+typedef enum
+{
+	NTV_NONE = 0,
+	NTV_GETSPHERES,
+	NTV_GETMORESPHERES,
+	NTV_BONUSTIMESTART,
+	NTV_BONUSTIMEEND,
+} nightstextvar_t;
+
+
 // ========================================================================
 //                          PLAYER STRUCTURE
 // ========================================================================
+
+//Bot memory struct
+typedef struct botmem_s
+{
+	boolean lastForward;
+	boolean lastBlocked;
+	boolean blocked;
+	UINT8 catchup_tics;
+	UINT8 thinkstate;
+} botmem_t;
+
+//Main struct
 typedef struct player_s
 {
 	mobj_t *mo;
@@ -345,6 +428,8 @@ typedef struct player_s
 
 	// fun thing for player sprite
 	angle_t drawangle;
+	angle_t old_drawangle;
+	angle_t old_drawangle2;
 
 	// player's ring count
 	INT16 rings;
@@ -367,18 +452,20 @@ typedef struct player_s
 
 	// playing animation.
 	panim_t panim;
+	UINT8 stronganim;
 
 	// For screen flashing (bright).
 	UINT16 flashcount;
 	UINT16 flashpal;
 
-	// Player skin colorshift, 0-15 for which color to draw player.
+	// Player skin colorshift, which color to draw player.
 	UINT16 skincolor;
 
-	INT32 skin;
+	UINT8 skin;
 	UINT32 availabilities;
 
-	UINT32 score; // player score
+	UINT32 score; // player score (total)
+	UINT32 recordscore; // player score (per life / map)
 	fixed_t dashspeed; // dashing speed
 
 	fixed_t normalspeed; // Normal ground
@@ -492,7 +579,8 @@ typedef struct player_s
 	// Statistical purposes.
 	tic_t marebegunat; // Leveltime when mare begun
 	tic_t startedtime; // Time which you started this mare with.
-	tic_t finishedtime; // Time it took you to finish the mare (used for display)
+	tic_t finishedtime; // The time it took to destroy the capsule on this mare (used for bonus time display)
+	tic_t lastmaretime; // The time it took to complete the last mare (used for rank display)
 	tic_t lapbegunat; // Leveltime when lap begun
 	tic_t lapstartedtime; // Time which you started this lap with.
 	INT16 finishedspheres; // The spheres you had left upon finishing the mare
@@ -507,7 +595,7 @@ typedef struct player_s
 	UINT8 totalmarebonuslap; // total mare bonus lap
 	INT32 maxlink; // maximum link obtained
 	UINT8 texttimer; // nights_texttime should not be local
-	UINT8 textvar; // which line of NiGHTS text to show -- let's not use cheap hacks
+	UINT8 textvar; // which line of NiGHTS text to show -- see nightstextvar_t
 
 	INT16 lastsidehit, lastlinehit;
 
@@ -522,13 +610,18 @@ typedef struct player_s
 
 	boolean spectator;
 	boolean outofcoop;
+	boolean removing;
+	boolean muted;
 	UINT8 bot;
+	struct player_s *botleader;
+	UINT16 lastbuttons;
+	botmem_t botmem;
+	boolean blocked;
 
 	tic_t jointime; // Timer when player joins game to change skin/color
 	tic_t quittime; // Time elapsed since user disconnected, zero if connected
-#ifdef HWRENDER
+	tic_t lastinputtime; // the last tic the player has made any input
 	fixed_t fovadd; // adjust FOV for hw rendering
-#endif
 } player_t;
 
 // Values for dashmode

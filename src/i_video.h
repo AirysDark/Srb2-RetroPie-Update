@@ -2,7 +2,7 @@
 //-----------------------------------------------------------------------------
 // Copyright (C) 1993-1996 by id Software, Inc.
 // Copyright (C) 1998-2000 by DooM Legacy Team.
-// Copyright (C) 1999-2020 by Sonic Team Junior.
+// Copyright (C) 1999-2024 by Sonic Team Junior.
 //
 // This program is free software distributed under the
 // terms of the GNU General Public License, version 2.
@@ -36,14 +36,9 @@ typedef enum
 */
 extern rendermode_t rendermode;
 
-/**	\brief OpenGL state
-	0 = never loaded, 1 = loaded successfully, -1 = failed loading
+/**	\brief render mode set by command line arguments
 */
-extern INT32 vid_opengl_state;
-
-/**	\brief use highcolor modes if true
-*/
-extern boolean highcolor;
+extern rendermode_t chosenrendermode;
 
 /**	\brief setup video mode
 */
@@ -90,8 +85,9 @@ INT32 VID_GetModeForSize(INT32 w, INT32 h);
 INT32 VID_SetMode(INT32 modenum);
 
 /**	\brief Checks the render state
+	\return	true if the renderer changed
 */
-void VID_CheckRenderer(void);
+boolean VID_CheckRenderer(void);
 
 /**	\brief Load OpenGL mode
 */
@@ -108,8 +104,8 @@ void VID_CheckGLLoaded(rendermode_t oldrender);
 	\return	name of video mode
 */
 const char *VID_GetModeName(INT32 modenum);
-void VID_PrepareModeList(void); /// note hack for SDL
 
+void VID_PrepareModeList(void);
 
 /**	\brief can video system do fullscreen
 */
@@ -150,5 +146,7 @@ void I_BeginRead(void);
 /**	\brief Stop disk icon
 */
 void I_EndRead(void);
+
+UINT32 I_GetRefreshRate(void);
 
 #endif
