@@ -1,8 +1,8 @@
 // SONIC ROBO BLAST 2
 //-----------------------------------------------------------------------------
 // Copyright (C) 1993-1996 by id Software, Inc.
-// Copyright (C) 2018-2020 by Jaime "Lactozilla" Passos.
-// Copyright (C) 2019-2020 by Sonic Team Junior.
+// Copyright (C) 2018-2024 by Lactozilla.
+// Copyright (C) 2019-2024 by Sonic Team Junior.
 //
 // This program is free software distributed under the
 // terms of the GNU General Public License, version 2.
@@ -24,6 +24,7 @@ typedef enum
 	// Doom formats
 	PICFMT_PATCH,
 	PICFMT_FLAT,
+	PICFMT_DOOMPATCH,
 
 	// PNG
 	PICFMT_PNG,
@@ -31,16 +32,19 @@ typedef enum
 	// 16bpp
 	PICFMT_PATCH16,
 	PICFMT_FLAT16,
+	PICFMT_DOOMPATCH16,
 
 	// 32bpp
 	PICFMT_PATCH32,
-	PICFMT_FLAT32
+	PICFMT_FLAT32,
+	PICFMT_DOOMPATCH32
 } pictureformat_t;
 
 typedef enum
 {
-	PICFLAGS_XFLIP = 1,
-	PICFLAGS_YFLIP = 1<<1
+	PICFLAGS_XFLIP                = 1,
+	PICFLAGS_YFLIP                = 1<<1,
+	PICFLAGS_USE_TRANSPARENTPIXEL = 1<<2
 } pictureflags_t;
 
 enum
@@ -59,25 +63,27 @@ void *Picture_Convert(
 
 void *Picture_PatchConvert(
 	pictureformat_t informat, void *picture, pictureformat_t outformat,
-	size_t insize, size_t *outsize,
-	INT16 inwidth, INT16 inheight, INT16 inleftoffset, INT16 intopoffset,
+	size_t *outsize,
+	INT32 inwidth, INT32 inheight, INT32 inleftoffset, INT32 intopoffset,
 	pictureflags_t flags);
 void *Picture_FlatConvert(
 	pictureformat_t informat, void *picture, pictureformat_t outformat,
-	size_t insize, size_t *outsize,
-	INT16 inwidth, INT16 inheight, INT16 inleftoffset, INT16 intopoffset,
+	size_t *outsize,
+	INT32 inwidth, INT32 inheight,
 	pictureflags_t flags);
 void *Picture_GetPatchPixel(
 	patch_t *patch, pictureformat_t informat,
 	INT32 x, INT32 y,
 	pictureflags_t flags);
 
-void *Picture_TextureToFlat(size_t trickytex);
+void *Picture_TextureToFlat(size_t texnum);
 
 INT32 Picture_FormatBPP(pictureformat_t format);
 boolean Picture_IsPatchFormat(pictureformat_t format);
+boolean Picture_IsInternalPatchFormat(pictureformat_t format);
+boolean Picture_IsDoomPatchFormat(pictureformat_t format);
 boolean Picture_IsFlatFormat(pictureformat_t format);
-boolean Picture_CheckIfPatch(patch_t *patch, size_t size);
+boolean Picture_CheckIfDoomPatch(softwarepatch_t *patch, size_t size);
 
 // Structs
 typedef enum
@@ -90,18 +96,18 @@ typedef enum
 typedef struct
 {
 	INT32 x, y;
-	rotaxis_t rotaxis;
 } spriteframepivot_t;
 
 typedef struct
 {
-	spriteframepivot_t pivot[64];
+	spriteframepivot_t pivot[MAXFRAMENUM];
 	boolean available;
 } spriteinfo_t;
 
-// Portable Network Graphics
+// PNG support
+#define PNG_HEADER_SIZE 8
+
 boolean Picture_IsLumpPNG(const UINT8 *d, size_t s);
-#define Picture_ThrowPNGError(lumpname, wadfilename) I_Error("W_Wad: Lump \"%s\" in file \"%s\" is a .png - please convert to either Doom or Flat (raw) image format.", lumpname, wadfilename); // Fears Of LJ Sonic
 
 #ifndef NO_PNG_LUMPS
 void *Picture_PNGConvert(
@@ -111,24 +117,13 @@ void *Picture_PNGConvert(
 	size_t insize, size_t *outsize,
 	pictureflags_t flags);
 boolean Picture_PNGDimensions(UINT8 *png, INT32 *width, INT32 *height, INT16 *topoffset, INT16 *leftoffset, size_t size);
-#endif
 
 #define PICTURE_PNG_USELOOKUP
+#endif
 
 // SpriteInfo
 extern spriteinfo_t spriteinfo[NUMSPRITES];
 void R_LoadSpriteInfoLumps(UINT16 wadnum, UINT16 numlumps);
 void R_ParseSPRTINFOLump(UINT16 wadNum, UINT16 lumpNum);
 
-// Sprite rotation
-#ifdef ROTSPRITE
-INT32 R_GetRollAngle(angle_t rollangle);
-void R_CacheRotSprite(spritenum_t sprnum, UINT8 frame, spriteinfo_t *sprinfo, spriteframe_t *sprframe, INT32 rot, UINT8 flip);
-void R_FreeSingleRotSprite(spritedef_t *spritedef);
-void R_FreeSkinRotSprite(size_t skinnum);
-extern fixed_t rollcosang[ROTANGLES];
-extern fixed_t rollsinang[ROTANGLES];
-void R_FreeAllRotSprite(void);
-#endif
-
-#endif // __R_PATCH__
+#endif // __R_PICFORMATS__

@@ -2,7 +2,7 @@
 //-----------------------------------------------------------------------------
 // Copyright (C) 1993-1996 by id Software, Inc.
 // Copyright (C) 1998-2000 by DooM Legacy Team.
-// Copyright (C) 1999-2020 by Sonic Team Junior.
+// Copyright (C) 1999-2023 by Sonic Team Junior.
 //
 // This program is free software distributed under the
 // terms of the GNU General Public License, version 2.
@@ -15,6 +15,7 @@
 #define __Z_ZONE__
 
 #include <stdio.h>
+#include "doomdef.h"
 #include "doomtype.h"
 
 #ifdef __GNUC__ // __attribute__ ((X))
@@ -39,15 +40,22 @@ enum
 	// Tags < PU_LEVEL are not purged until freed explicitly.
 	PU_STATIC                = 1, // static entire execution time
 	PU_LUA                   = 2, // static entire execution time -- used by lua so it doesn't get caught in loops forever
+	PU_PERFSTATS             = 3, // static between changes to ps_samplesize cvar
 
 	PU_SOUND                 = 11, // static while playing
 	PU_MUSIC                 = 12, // static while playing
-	PU_HUDGFX                = 13, // static until WAD added
-	PU_PATCH                 = 14, // static until renderer change
+
+	PU_PATCH                 = 14, // static entire execution time
+	PU_PATCH_LOWPRIORITY     = 15, // lower priority patch, static until level exited
+	PU_PATCH_ROTATED         = 16, // rotated patch, static until level exited or WAD added
+	PU_PATCH_DATA            = 17, // patch data, lifetime depends on the patch that owns it
+	PU_SPRITE                = 18, // sprite patch, static until WAD added
+	PU_HUDGFX                = 19, // HUD patch, static until WAD added
 
 	PU_HWRPATCHINFO          = 21, // Hardware GLPatch_t struct for OpenGL texture cache
 	PU_HWRPATCHCOLMIPMAP     = 22, // Hardware GLMipmap_t struct colormap variation of patch
 	PU_HWRMODELTEXTURE       = 23, // Hardware model texture
+	PU_HWRLIGHTTABLEDATA     = 24, // Hardware light table data
 
 	PU_HWRCACHE              = 48, // static until unlocked
 	PU_CACHE                 = 49, // static until unlocked
@@ -63,8 +71,7 @@ enum
 	PU_HWRCACHE_UNLOCKED     = 102, // 'unlocked' PU_HWRCACHE memory:
 									// 'second-level' cache for graphics
                                     // stored in hardware format and downloaded as needed
-	PU_HWRPATCHINFO_UNLOCKED = 103, // 'unlocked' PU_HWRPATCHINFO memory
-	PU_HWRMODELTEXTURE_UNLOCKED = 104, // 'unlocked' PU_HWRMODELTEXTURE memory
+	PU_HWRMODELTEXTURE_UNLOCKED = 103, // 'unlocked' PU_HWRMODELTEXTURE memory
 };
 
 //
@@ -96,16 +103,20 @@ void *Z_CallocAlign(size_t size, INT32 tag, void *user, INT32 alignbits) FUNCALL
 void *Z_ReallocAlign(void *ptr, size_t size, INT32 tag, void *user, INT32 alignbits) FUNCALLOC(2);
 #endif
 
-// Alloc with no alignment
-#define Z_Malloc(s,t,u)    Z_MallocAlign(s, t, u, 0)
-#define Z_Calloc(s,t,u)    Z_CallocAlign(s, t, u, 0)
-#define Z_Realloc(p,s,t,u) Z_ReallocAlign(p, s, t, u, 0)
+// Alloc with standard alignment
+#define Z_Malloc(s,t,u)    Z_MallocAlign(s, t, u, sizeof(void *))
+#define Z_Calloc(s,t,u)    Z_CallocAlign(s, t, u, sizeof(void *))
+#define Z_Realloc(p,s,t,u) Z_ReallocAlign(p, s, t, u, sizeof(void *))
 
 // Free all memory by tag
 // these don't give line numbers for ZDEBUG currently though
 // (perhaps this should be changed in future?)
 #define Z_FreeTag(tagnum) Z_FreeTags(tagnum, tagnum)
 void Z_FreeTags(INT32 lowtag, INT32 hightag);
+
+// Iterate memory by tag
+#define Z_IterateTag(tagnum, func) Z_IterateTags(tagnum, tagnum, func)
+void Z_IterateTags(INT32 lowtag, INT32 hightag, boolean (*iterfunc)(void *));
 
 //
 // Utility functions
@@ -143,11 +154,5 @@ size_t Z_TagsUsage(INT32 lowtag, INT32 hightag);
 //
 char *Z_StrDup(const char *in);
 #define Z_Unlock(p) (void)p // TODO: remove this now that NDS code has been removed
-
-// For renderer switching
-extern boolean needpatchflush;
-extern boolean needpatchrecache;
-void Z_FlushCachedPatches(void);
-void Z_PreparePatchFlush(void);
 
 #endif
